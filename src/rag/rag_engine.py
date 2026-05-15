@@ -1,10 +1,14 @@
 from openai import OpenAI
 from src.pipeline import search
 from src.processing.arabic_processor import is_arabic
+import os
+from dotenv import load_dotenv
 
-GROQ_KEY = "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"
+load_dotenv()
+GROQ_KEY = os.getenv("GROQ_API_KEY", "")
 
-client = OpenAI(
+
+client = OpenAI(  
     api_key=GROQ_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
@@ -21,7 +25,7 @@ def answer(question, n_chunks=5, document_id=None, language=None):
     if not chunks:
         return {
             "question": question,
-            "answer": "لم أجد معلومات ذات صلة." if is_arabic(question) else "No relevant information found.",
+            "answer": "لم أجد معلومات ذات صلة." if is_arabic(question) else "No relevant information found",
             "sources": [],
             "retrieval_ms": retrieval_ms,
             "generation_ms": 0,
@@ -32,10 +36,10 @@ def answer(question, n_chunks=5, document_id=None, language=None):
     )
 
     if is_arabic(question):
-        system = "أنت مساعد ذكي متخصص في تحليل المستندات. استخدم المقاطع المقدمة للإجابة على السؤال بدقة. إذا لم تجد الإجابة في المقاطع قل ذلك بوضوح."
+        system = "أنت مساعد ذكي متخصص في تحليل المستندات. استخدم المقاطع المقدمة للإجابة على السؤال بدقة. إذا لم تجد الإجابة في المقاطع قل ذلك بوضوح"
         user = f"المقاطع:\n{context}\n\nالسؤال: {question}\n\nالإجابة:"
     else:
-        system = "You are an intelligent document analysis assistant. Use the provided excerpts to answer the question accurately. If the answer is not in the excerpts, say so clearly."
+        system = "You are an intelligent document analysis assistant. Use the provided excerpts to answer the question accurately. If the answer is not in the excerpts, say so clearly"
         user = f"Excerpts:\n{context}\n\nQuestion: {question}\n\nAnswer:"
 
     generation_start = time.time()
