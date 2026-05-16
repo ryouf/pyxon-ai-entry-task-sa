@@ -10,37 +10,67 @@ import io
 from src.processing.arabic_processor import clean, get_stats, clean_ocr
   
 def load_pdf(file_path):
-    
-    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    try:
+        import fitz
+        import pytesseract
+        import cv2
+        import numpy as np
+        from PIL import Image
+        import io
+        HAS_OCR = True
+    except ImportError:
+        HAS_OCR = False
+        import pdfplumber
 
     pages = []
-    doc = fitz.open(file_path)
-    meta = {
-        "title": doc.metadata.get("title", "") or Path(file_path).stem,
-        "author": doc.metadata.get("author", ""),
-        "num_pages": len(doc),
-    }
 
-    for i, page in enumerate(doc):
-        pix = page.get_pixmap(dpi=400)
-        img_array = np.frombuffer(pix.samples, dtype=np.uint8)
-        img_cv = img_array.reshape(pix.height, pix.width, pix.n)
+    if HAS_OCR:
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        doc = fitz.open(file_path)
+        meta = {
+            "title": doc.metadata.get("title", "") or Path(file_path).stem,
+            "author": doc.metadata.get("author", ""),
+            "num_pages": len(doc),
+        }
+        for i, page in enumerate(doc):
+            blocks = page.get_text("blocks", sort=True)
+            lines = []
+            for block in blocks:
+                block_text = block[4].strip()
+                block_text = " ".join(block_text.split())
+                if block_text:
+                    lines.append(block_text)
+            text = clean("\n".join(lines))
+            arabic_chars = sum(1 for c in text if '\u0600' <= c <= '\u06FF')
+            total_chars = len(text.replace(" ", ""))
+            arabic_ratio = arabic_chars / max(total_chars, 1)
+            if arabic_ratio < 0.5:
+                pix = page.get_pixmap(dpi=400)
+                img_array = np.frombuffer(pix.samples, dtype=np.uint8)
+                img_cv = img_array.reshape(pix.height, pix.width, pix.n)
+                gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+                gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+                gray = cv2.medianBlur(gray, 3)
+                img_pil = Image.fromarray(gray)
+                custom_config = r'--oem 3 --psm 6 -l ara+eng'
+                text = clean(pytesseract.image_to_string(img_pil, config=custom_config))
+            text = clean_ocr(text)
+            if text:
+                pages.append({"page": i + 1, "text": text})
+        doc.close()
+    else:
+        with pdfplumber.open(file_path) as pdf:
+            meta = {
+                "title": pdf.metadata.get("Title", "") or Path(file_path).stem,
+                "author": pdf.metadata.get("Author", ""),
+                "num_pages": len(pdf.pages),
+            }
+            for i, page in enumerate(pdf.pages):
+                text = page.extract_text(x_tolerance=3, y_tolerance=3) or ""
+                text = clean(text)
+                if text:
+                    pages.append({"page": i + 1, "text": text})
 
-        gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-        gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        gray = cv2.medianBlur(gray, 3)
-
-        img_pil = Image.fromarray(gray)
-
-        custom_config = r'--oem 3 --psm 6 -l ara+eng'
-        text = pytesseract.image_to_string(img_pil, config=custom_config)
-        text = clean_ocr(text)
-        text = clean(text)
-
-        if text:
-            pages.append({"page": i + 1, "text": text})
-
-    doc.close()
     return meta, pages
 
 def load_docx(file_path):
